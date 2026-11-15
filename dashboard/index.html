@@ -20,7 +20,13 @@
 </header>
 
 <main class="wrap">
-  <section class="panel" aria-label="Board controls">
+  <section class="panel" aria-label="Top 10 by implied value">
+    <h2>Top 10 by implied value</h2>
+    <p class="sub">The ten largest launches the model finds. Click a card for its detail view and farm plan.</p>
+    <div class="cards" id="top10"></div>
+  </section>
+
+  <section class="panel" id="board-panel" aria-label="Board controls">
     <div class="controls">
       <label>Search <input id="q" type="search" placeholder="protocol name or slug" autocomplete="off"></label>
       <label>Category
@@ -35,8 +41,10 @@
           <option value="tvl">TVL, high to low</option>
           <option value="chg">7-day change, high to low</option>
           <option value="age">Longest listed first</option>
+          <option value="density">Implied value per $ of TVL</option>
         </select>
       </label>
+      <label class="check"><input id="wl" type="checkbox"> Watchlist only</label>
     </div>
     <p class="count" id="count"></p>
     <div class="tablewrap">
@@ -57,48 +65,63 @@
       </table>
     </div>
     <p class="hint">Click a row for the detail view and farm plan. Ranks are the model's claim,
-    not the table's order — sort how you like, the ranks stay put.</p>
+    not the table's order — sort how you like, the ranks stay put. <span class="wlmark">WL</span>
+    marks the 40 protocols on the snapshot's watchlist.</p>
   </section>
 
   <section class="panel" id="detail" aria-label="Protocol detail">
     <p class="empty">Select a protocol above to see its value breakdown and farm plan.</p>
   </section>
 
+  <section class="panel" aria-label="Where the value sits">
+    <h2>Where the value sits</h2>
+    <p class="sub">Implied value by category across the whole board — the model's ranking, summed up.</p>
+    <div class="bars" id="catbars"></div>
+  </section>
+
   <section class="panel" aria-label="How the value is worked out">
     <h2>How the value is worked out</h2>
-    <p>Implied value = <code>TVL × category ratio × momentum × age × chains</code></p>
+    <p>Implied value = <code>TVL × category ratio × momentum × tenure × breadth</code></p>
     <ul class="method">
       <li><strong>Category ratio.</strong> The median market-cap/TVL of the tokenised protocols
-      in the same category (at least 3 of them), else the global median of 0.169. A launch is
-      priced the way the market already prices its peers — see the calibration table.</li>
-      <li><strong>Momentum.</strong> The 7-day TVL change, clamped to −50%…+100%, mapped to
-      0.75…1.50. No reported change counts as flat.</li>
-      <li><strong>Age.</strong> Days since DefiLlama first tracked the protocol, capped at
-      730 days, mapped to 1.00…1.25. A protocol that has run for years with no token has
-      the longer track record.</li>
-      <li><strong>Chains.</strong> 1 + 0.03 per extra chain, capped at 5 extra chains.</li>
+      in the same category, winsorized at the 5th/95th percentile and shrunk toward the global
+      median with a prior weight of 5 — so one 400× outlier cannot price a whole category, and a
+      category with a single tokenised peer still borrows from the market. A launch is priced the
+      way the market already prices its peers — see the calibration table.</li>
+      <li><strong>Momentum.</strong> The 7-day TVL change, clamped to −60%…+120%, mapped to
+      0.60…1.80. No reported change counts as flat.</li>
+      <li><strong>Tenure.</strong> How long the protocol has run with no token: days since
+      DefiLlama first tracked it, capped at 1,460 days, on a square-root curve to 1.00…1.45.
+      Unreported listing counts as 1.00.</li>
+      <li><strong>Breadth.</strong> 1 + 0.03 per extra chain, capped at 5 extra chains.</li>
       <li><strong>Candidate rule.</strong> Ranked only when the snapshot records no token at
       all, and never a bridge, exchange, liquid-staking product, wrapped or staked product,
-      or versioned deployment. The 40-protocol watchlist is the floor: all 40 are ranked,
-      plus the 158 eligible protocols below the $50M floor with the most TVL.</li>
+      cross-chain bridge, or a product named for an issuer whose token already trades
+      (Circle, Tether). The 40-protocol watchlist is the floor: all 40 are ranked, plus the
+      157 eligible protocols below the $50M floor with the most TVL.</li>
+      <li><strong>What the model does not do.</strong> A log-log fit of market cap on TVL across
+      the tokenised protocols gives R² 0.19 — too noisy to price from — so the board uses the
+      category medians above, not the fitted curve. No protocol name is ever special-cased.</li>
     </ul>
     <h3>Calibration — tokenised protocols by category</h3>
     <table class="small" id="calib">
-      <thead><tr><th>Category</th><th class="num">Protocols</th><th class="num">Median mcap / TVL</th></tr></thead>
+      <thead><tr><th>Category</th><th class="num">Peers</th><th class="num">Median mcap / TVL</th><th class="num">Board ratio</th></tr></thead>
       <tbody></tbody>
     </table>
   </section>
 
   <section class="panel" aria-label="Protocols that already have a token">
     <h2>Already has a token — not ranked</h2>
+    <p>The market's own values, for the largest tokenised protocols by market cap. The board
+    separates these from the protocols still to come — their market caps are the evidence the
+    category ratios are built from, not rows on the board.</p>
+    <table class="small" id="live">
+      <thead><tr><th>Protocol</th><th class="num">Market cap</th><th class="num">TVL</th><th class="num">mcap / TVL</th></tr></thead>
+      <tbody></tbody>
+    </table>
     <p><span id="tickerCount"></span> protocols record a ticker but no market cap, so a token
-    exists and the radar does not rank them as launches. A few of the largest:
-    CAKE, CRV, MORPHO, ENA, SKY, AAVE, ZRO, RAY, KMNO, SPK, HYPE, SYRUP. The full
-    list is below; the board separates these from the protocols still to come.</p>
-    <details>
-      <summary>Show the full list</summary>
-      <p class="tickerlist" id="tickerList"></p>
-    </details>
+    exists and the radar does not rank them as launches. The largest by TVL:</p>
+    <p class="tickerlist" id="tickerList"></p>
   </section>
 
   <footer>
