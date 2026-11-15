@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Token Launch Radar — protocols with no token, ranked by implied value</title>
+<link rel="stylesheet" href="./app.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap">
+    <p class="kicker">MAKE.FUN · TOKEN-RADAR-01 · SNAPSHOT 14 NOV 2026</p>
+    <h1>Token Launch Radar</h1>
+    <p class="lede">758 protocols from DefiLlama, ranked by what a token would be worth if the
+    protocol's record stayed as it is. A protocol is ranked only when the snapshot records
+    no token for it at all — no market cap, no CoinGecko id, no ticker. Nothing here
+    predicts whether or when a token is issued.</p>
+    <div class="chips" id="chips"></div>
+  </div>
+</header>
+
+<main class="wrap">
+  <section class="panel" aria-label="Board controls">
+    <div class="controls">
+      <label>Search <input id="q" type="search" placeholder="protocol name or slug" autocomplete="off"></label>
+      <label>Category
+        <select id="cat"><option value="">All categories</option></select>
+      </label>
+      <label>Chain
+        <select id="chain"><option value="">All chains</option></select>
+      </label>
+      <label>Sort by
+        <select id="sort">
+          <option value="rank">Rank (implied value)</option>
+          <option value="tvl">TVL, high to low</option>
+          <option value="chg">7-day change, high to low</option>
+          <option value="age">Longest listed first</option>
+        </select>
+      </label>
+    </div>
+    <p class="count" id="count"></p>
+    <div class="tablewrap">
+      <table id="board">
+        <thead>
+          <tr>
+            <th class="num">#</th>
+            <th>Protocol</th>
+            <th>Category</th>
+            <th>Chains</th>
+            <th class="num">TVL</th>
+            <th class="num">7d</th>
+            <th class="num">Implied value</th>
+            <th class="num">Age</th>
+          </tr>
+        </thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <p class="hint">Click a row for the detail view and farm plan. Ranks are the model's claim,
+    not the table's order — sort how you like, the ranks stay put.</p>
+  </section>
+
+  <section class="panel" id="detail" aria-label="Protocol detail">
+    <p class="empty">Select a protocol above to see its value breakdown and farm plan.</p>
+  </section>
+
+  <section class="panel" aria-label="How the value is worked out">
+    <h2>How the value is worked out</h2>
+    <p>Implied value = <code>TVL × category ratio × momentum × age × chains</code></p>
+    <ul class="method">
+      <li><strong>Category ratio.</strong> The median market-cap/TVL of the tokenised protocols
+      in the same category (at least 3 of them), else the global median of 0.169. A launch is
+      priced the way the market already prices its peers — see the calibration table.</li>
+      <li><strong>Momentum.</strong> The 7-day TVL change, clamped to −50%…+100%, mapped to
+      0.75…1.50. No reported change counts as flat.</li>
+      <li><strong>Age.</strong> Days since DefiLlama first tracked the protocol, capped at
+      730 days, mapped to 1.00…1.25. A protocol that has run for years with no token has
+      the longer track record.</li>
+      <li><strong>Chains.</strong> 1 + 0.03 per extra chain, capped at 5 extra chains.</li>
+      <li><strong>Candidate rule.</strong> Ranked only when the snapshot records no token at
+      all, and never a bridge, exchange, liquid-staking product, wrapped or staked product,
+      or versioned deployment. The 40-protocol watchlist is the floor: all 40 are ranked,
+      plus the 158 eligible protocols below the $50M floor with the most TVL.</li>
+    </ul>
+    <h3>Calibration — tokenised protocols by category</h3>
+    <table class="small" id="calib">
+      <thead><tr><th>Category</th><th class="num">Protocols</th><th class="num">Median mcap / TVL</th></tr></thead>
+      <tbody></tbody>
+    </table>
+  </section>
+
+  <section class="panel" aria-label="Protocols that already have a token">
+    <h2>Already has a token — not ranked</h2>
+    <p><span id="tickerCount"></span> protocols record a ticker but no market cap, so a token
+    exists and the radar does not rank them as launches. A few of the largest:
+    CAKE, CRV, MORPHO, ENA, SKY, AAVE, ZRO, RAY, KMNO, SPK, HYPE, SYRUP. The full
+    list is below; the board separates these from the protocols still to come.</p>
+    <details>
+      <summary>Show the full list</summary>
+      <p class="tickerlist" id="tickerList"></p>
+    </details>
+  </section>
+
+  <footer>
+    <p>Implied value is this entry's own claim, derived from the sealed snapshot alone —
+    not a prediction, not investment advice. Snapshot: DefiLlama protocols, fetched
+    14 Nov 2026; 758 protocols at or above $5M TVL. Farm-plan gas figures are rough
+    public estimates for moving stablecoins, marked “about”.</p>
+  </footer>
+</main>
+<script type="module" src="./app.js"></script>
+</body>
+</html>
