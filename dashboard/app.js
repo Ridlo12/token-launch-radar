@@ -1,37 +1,39 @@
-// app.js — Token Launch Radar v2 dashboard logic (ES module, no network).
-// Reads the compact rows main.ts wrote to data.js and renders the board, the
-// spotlight, the filters and the detail view. Farm steps are built by farm.js,
-// the same generator main.ts used for board.json, so the page and the board agree.
-import { ROWS, META, CATEGORIES, CHAINS, CALIBRATION, LIVE, TICKER_TOP, CAT_TOTALS } from './data.js';
+// app.js — Token Launch Radar v3 dashboard logic (ES module, no network).
+// Renders the board, spotlight, filters, detail view and concentration panel
+// from the compact rows in data.js. Farm steps come from farm.js, the same
+// generator main.ts used for board.json, so the page and the board agree.
+import { ROWS, META, CATEGORIES, CHAINS, CALIBRATION, LIVE, TICKER_TOP } from './data.js';
 import { buildFarmSteps, planSummary } from './farm.js';
 
-// The factors main.ts used, re-derived here from the row's own figures so
-// data.js stays small: momentum from the 7-day change, tenure from days
-// listed, breadth from the chain count — the same formulas, rounded the same way.
+// The factors main.ts used, re-derived here from the row's own figures:
+// momentum from the 7-day change, tenure from days listed, breadth from the
+// chain count — the same formulas. The category ratio comes from CALIBRATION.
 const clamp = (x, lo, hi) => (x < lo ? lo : x > hi ? hi : x);
 const round4 = (x) => Math.round(x * 10000) / 10000;
 const momentumOf = (change) => (change === null ? 1 : 1 + clamp(change, -60, 120) / 150);
 const tenureOf = (days) => (days === null ? 1 : 1 + 0.45 * Math.sqrt(Math.min(days, 1460) / 1460));
 const breadthOf = (n) => 1 + 0.03 * Math.min(n - 1, 5);
+const ratioByCat = new Map(CALIBRATION.map((c) => [c.category, c.ratio]));
 
 const rows = ROWS.map((r) => ({
   rank: r[0],
   slug: r[1],
   name: r[2],
   category: CATEGORIES[r[3]],
-  chains: r[4].map((i) => CHAINS[i]),
-  tvl: r[5],
-  change: r[6],
-  implied: r[7],
-  ageDays: r[8],
-  ratio: r[9],
+  chains: [CHAINS[r[4]]],
+  chainCount: r[5],
+  tvl: r[6],
+  change: r[7],
+  implied: r[8],
+  ageDays: r[9],
   wl: r[10] === 1,
-  momentum: round4(momentumOf(r[6])),
-  tenure: round4(tenureOf(r[8])),
-  breadth: round4(breadthOf(r[4].length)),
-  density: r[7] / r[5],
+  ratio: ratioByCat.get(CATEGORIES[r[3]]) ?? META.globalRatio,
+  momentum: round4(momentumOf(r[7])),
+  tenure: round4(tenureOf(r[9])),
+  breadth: round4(breadthOf(r[5])),
+  density: r[8] / r[6],
 }));
-// TVL rank and 7-day-change rank, for the detail view's "why this rank" line.
+// TVL and 7-day-change ranks, for the detail view.
 const byTvl = [...rows].sort((a, b) => b.tvl - a.tvl);
 byTvl.forEach((r, i) => { r.tvlRank = i + 1; });
 const byChg = [...rows].sort((a, b) => (b.change ?? -Infinity) - (a.change ?? -Infinity));
@@ -42,6 +44,10 @@ const minImp = Math.min(...rows.map((r) => r.implied));
 const maxImp = Math.max(...rows.map((r) => r.implied));
 const maxRatio = Math.max(...rows.map((r) => r.ratio));
 const logW = (v, lo, hi) => Math.max(2, Math.round(((Math.log10(v) - Math.log10(lo)) / (Math.log10(hi) - Math.log10(lo))) * 100));
+// Implied value by category, summed from the rows on the page.
+const catTotals = new Map();
+for (const r of rows) catTotals.set(r.category, (catTotals.get(r.category) ?? 0) + r.implied);
+const CAT_TOTALS = [...catTotals.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 8);
 
 const $ = (id) => document.getElementById(id);
 const esc = (s) =>
@@ -76,7 +82,7 @@ function filtered() {
     (r) =>
       (!q || r.name.toLowerCase().includes(q) || r.slug.includes(q)) &&
       (!state.cat || r.category === state.cat) &&
-      (!state.chain || r.chains.includes(state.chain)) &&
+      (!state.chain || r.chains[0] === state.chain) &&
       (!state.wl || r.wl),
   );
   const by = {
@@ -122,7 +128,7 @@ function renderTable() {
         <td class="num rank">${r.rank}</td>
         <td><span class="name">${esc(r.name)}</span>${r.wl ? '<span class="wlmark">WL</span>' : ''}<span class="badge">PRE-TOKEN</span></td>
         <td>${esc(r.category)}</td>
-        <td>${esc(r.chains[0])}${r.chains.length > 1 ? ` +${r.chains.length - 1}` : ''}</td>
+        <td>${esc(r.chains[0])}${r.chainCount > 1 ? ` +${r.chainCount - 1}` : ''}</td>
         <td class="num">${fmtUsd(r.tvl)}</td>
         <td class="num">${fmtPct(r.change)}</td>
         <td class="num"><strong>${fmtUsd(r.implied)}</strong><div class="bar"><i style="width:${logW(r.implied, minImp, maxImp)}%"></i></div></td>
@@ -157,8 +163,7 @@ function renderDetail() {
     chains: r.chains,
     age_days: r.ageDays,
   });
-  // The displayed product uses the factors rounded to 4 decimals, so the
-  // arithmetic on screen reconciles; the board's value is the exact product.
+  // Displayed factors are rounded to 4 decimals; the board's value is exact.
   const product = Math.round(r.tvl * r.ratio * r.momentum * r.tenure * r.breadth);
   const wf = [
     ['TVL', fmtUsd(r.tvl), logW(r.tvl, minTvl, maxTvl), false],
@@ -170,7 +175,7 @@ function renderDetail() {
   box.innerHTML = `
     <div class="detail-head">
       <h2>#${r.rank} ${esc(r.name)}</h2>
-      <span class="sub">${esc(r.slug)} · ${esc(r.category)} · ${r.chains.map(esc).join(', ')}</span>
+      <span class="sub">${esc(r.slug)} · ${esc(r.category)} · ${esc(r.chains[0])}${r.chainCount > 1 ? ` + ${r.chainCount - 1} more` : ''}</span>
       ${r.wl ? '<span class="wlmark">WATCHLIST</span>' : '<span class="badge">BELOW FLOOR</span>'}
       <span class="badge">PRE-TOKEN</span>
     </div>
@@ -178,7 +183,7 @@ function renderDetail() {
       <div>
         <p class="formula">Implied value = TVL × ratio × momentum × tenure × breadth<br>
         <code>${fmtFull(r.tvl)} × ${r.ratio} × ${r.momentum} × ${r.tenure} × ${r.breadth} ≈ ${fmtFull(product)}</code><br>
-        <span class="hint">Factors shown rounded to 4 decimals; the board's value is the exact product, ${fmtFull(r.implied)}.</span></p>
+        <span class="hint">Factors rounded to 4 decimals; the board's value is the exact product.</span></p>
         <div class="waterfall">${wf.map(([lbl, val, w, acc]) => `
           <div class="wf-row"><span class="lbl">${lbl}</span><span class="wf-track"><i class="${acc ? 'acc' : ''}" style="width:${clamp(w, 2, 100)}%"></i></span><span class="val">${val}</span></div>`).join('')}</div>
         <table class="kv">
@@ -188,7 +193,7 @@ function renderDetail() {
           <tr><td>Category ratio (median mcap/TVL)</td><td>${r.ratio}</td></tr>
           <tr><td>Momentum factor</td><td>${r.momentum}</td></tr>
           <tr><td>Tenure factor (${r.ageDays === null ? 'listing unreported' : fmtAge(r.ageDays) + ' listed'})</td><td>${r.tenure}</td></tr>
-          <tr><td>Breadth factor (${r.chains.length} chain${r.chains.length === 1 ? '' : 's'})</td><td>${r.breadth}</td></tr>
+          <tr><td>Breadth factor (${r.chainCount} chain${r.chainCount === 1 ? '' : 's'})</td><td>${r.breadth}</td></tr>
         </table>
         <p class="hint">“Records no token” means the snapshot carries no market cap, no
         CoinGecko id and no ticker for this protocol. The implied value is this entry's
@@ -208,9 +213,16 @@ function renderChart() {
     <div class="brow"><span class="blbl">${esc(cat)}</span><span class="btrack"><i style="width:${Math.max(2, Math.round((total / max) * 100))}%"></i></span><span class="bval">${fmtUsd(total)}</span></div>`).join('');
 }
 
+function renderConcentration() {
+  $('concentration').innerHTML = `
+    <div class="brow"><span class="blbl">Top 3 launches</span><span class="btrack"><i style="width:${Math.max(2, Math.round(META.top3ImpliedPct))}%"></i></span><span class="bval">${META.top3ImpliedPct}%</span></div>
+    <div class="brow"><span class="blbl">Top 10 launches</span><span class="btrack"><i style="width:${Math.max(2, Math.round(META.top10ImpliedPct))}%"></i></span><span class="bval">${META.top10ImpliedPct}%</span></div>
+    <p class="hint">The top 3 hold ${META.top3TvlPct}% of the board's TVL, and the category ratio lifts them to ${META.top3ImpliedPct}% of the implied value. The concentration comes from TVL first — the three largest pre-token protocols are all Risk Curators — and no re-tuning of the prior fits the snapshot's evidence better, so the board shows it instead of hiding it.</p>`;
+}
+
 function renderCalib() {
   document.querySelector('#calib tbody').innerHTML = CALIBRATION.map(
-    (c) => `<tr><td>${esc(c.category)}</td><td class="num">${c.n}</td><td class="num">${c.median}</td><td class="num">${c.ratio}</td></tr>`,
+    (c) => `<tr><td>${esc(c.category)}${c.n < 3 ? ' <span class="thin">thin</span>' : ''}</td><td class="num">${c.n}</td><td class="num">${c.median}</td><td class="num">${c.ratio}</td></tr>`,
   ).join('');
   document.querySelector('#live tbody').innerHTML = LIVE.map(
     (t) => `<tr><td>${esc(t[0])}</td><td class="num">${fmtFull(t[1])}</td><td class="num">${fmtFull(t[2])}</td><td class="num">${t[3]}</td></tr>`,
@@ -228,7 +240,7 @@ function fillSelects() {
     catSel.appendChild(o);
   });
   const chainSel = $('chain');
-  [...new Set(rows.flatMap((r) => r.chains))].sort().forEach((c) => {
+  [...new Set(rows.map((r) => r.chains[0]))].sort().forEach((c) => {
     const o = document.createElement('option');
     o.value = c;
     o.textContent = c;
@@ -280,4 +292,5 @@ renderTop10();
 renderTable();
 renderDetail();
 renderChart();
+renderConcentration();
 renderCalib();

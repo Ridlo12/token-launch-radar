@@ -1,4 +1,4 @@
-# Token Launch Radar — v2
+# Token Launch Radar — v3
 
 [![make.fun · token-radar-01](https://make.fun/badge/token-radar-01.svg)](https://make.fun/bounty/token-radar-01?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
 [![rank](https://make.fun/badge/token-radar-01/Ridlo12/token-launch-radar/rank.svg)](https://make.fun/bounty/token-radar-01/leaderboard?utm_source=github&utm_medium=readme&utm_campaign=token-radar-01)
@@ -20,7 +20,7 @@ data, and the dossier to `/output`:
 mkdir -p out && MAKEFUN_OUTPUT_DIR=out node main.ts --input ../input/snapshot.json
 ```
 
-## The model — category-ratio v2
+## The model — category-ratio
 
 Implied value = `TVL × category ratio × momentum × tenure × breadth`
 
@@ -46,6 +46,15 @@ A log-log fit of market cap on TVL across the tokenised protocols gives
 R² 0.19 — too noisy to price from — so the board uses the category medians
 above, not the fitted curve.
 
+**Why the model did not change in v3.** The board is concentrated — the top 3
+hold 52.8% of the implied value — but that concentration comes from TVL
+first: the three largest launches already hold 34.3% of the board's TVL, and
+all three are Risk Curators. Twenty categories have two or fewer tokenised
+peers, so their ratios already borrow most of their weight from the global
+median. No other prior fits the snapshot's evidence better, so v3 keeps the
+calibration and instead shows the concentration on the page, flags the thin
+categories in the calibration table, and puts the work into the farm plans.
+
 ## The dashboard
 
 - **Top 10 spotlight** — the ten largest launches at a glance, each clickable.
@@ -56,9 +65,18 @@ above, not the fitted curve.
   the farm plan with an explicit cost and time on every step, and the plan's
   total gas and active time.
 - **Where the value sits** — implied value by category, summed across the board.
+- **How concentrated is this board?** — the top-3 and top-10 shares of implied
+  value, with the honest reason: TVL concentration, not a ratio trick.
 - **Already has a token** — the largest tokenised protocols by market cap
   (the market's own values, never ranked), and the protocols that record a
   ticker but no market cap.
+
+Every farm plan now has 7 steps: bridge, the core action for its category, an
+entry timing picked from its 7-day change, a weekly rhythm that differs by
+category, a second feature to try once, an exit trigger with a
+category-specific risk to watch, and what to do when the token launches
+(claim window, contract check, and a sell-half rule against the board's own
+implied value).
 
 Top of the board (14 Nov 2026 snapshot): Steakhouse Financial $2.68B,
 Sentora Curator $2.55B, Gauntlet $1.62B, Polymarket International $827M,

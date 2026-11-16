@@ -22,7 +22,7 @@
 <main class="wrap">
   <section class="panel" aria-label="Top 10 by implied value">
     <h2>Top 10 by implied value</h2>
-    <p class="sub">The ten largest launches the model finds. Click a card for its detail view and farm plan.</p>
+    <p class="sub">The ten largest launches. Click a card for its detail view and farm plan.</p>
     <div class="cards" id="top10"></div>
   </section>
 
@@ -32,7 +32,7 @@
       <label>Category
         <select id="cat"><option value="">All categories</option></select>
       </label>
-      <label>Chain
+      <label>Main chain
         <select id="chain"><option value="">All chains</option></select>
       </label>
       <label>Sort by
@@ -79,6 +79,12 @@
     <div class="bars" id="catbars"></div>
   </section>
 
+  <section class="panel" aria-label="How concentrated the board is">
+    <h2>How concentrated is this board?</h2>
+    <p class="sub">Shares of the board's total implied value, and the honest reason for them.</p>
+    <div class="bars" id="concentration"></div>
+  </section>
+
   <section class="panel" aria-label="How the value is worked out">
     <h2>How the value is worked out</h2>
     <p>Implied value = <code>TVL × category ratio × momentum × tenure × breadth</code></p>
@@ -88,6 +94,9 @@
       median with a prior weight of 5 — so one 400× outlier cannot price a whole category, and a
       category with a single tokenised peer still borrows from the market. A launch is priced the
       way the market already prices its peers — see the calibration table.</li>
+      <li><strong>Thin evidence.</strong> Twenty categories have two or fewer tokenised peers;
+      they are marked <span class="thin">thin</span> in the calibration table. Their ratios borrow
+      most of their weight from the global median, so one peer cannot price a whole category alone.</li>
       <li><strong>Momentum.</strong> The 7-day TVL change, clamped to −60%…+120%, mapped to
       0.60…1.80. No reported change counts as flat.</li>
       <li><strong>Tenure.</strong> How long the protocol has run with no token: days since
@@ -96,12 +105,11 @@
       <li><strong>Breadth.</strong> 1 + 0.03 per extra chain, capped at 5 extra chains.</li>
       <li><strong>Candidate rule.</strong> Ranked only when the snapshot records no token at
       all, and never a bridge, exchange, liquid-staking product, wrapped or staked product,
-      cross-chain bridge, or a product named for an issuer whose token already trades
-      (Circle, Tether). The 40-protocol watchlist is the floor: all 40 are ranked, plus the
+      or a product named for an issuer whose token already trades (Circle, Tether). The 40-protocol watchlist is the floor: all 40 are ranked, plus the
       157 eligible protocols below the $50M floor with the most TVL.</li>
       <li><strong>What the model does not do.</strong> A log-log fit of market cap on TVL across
       the tokenised protocols gives R² 0.19 — too noisy to price from — so the board uses the
-      category medians above, not the fitted curve. No protocol name is ever special-cased.</li>
+      category medians above, not the fitted curve.</li>
     </ul>
     <h3>Calibration — tokenised protocols by category</h3>
     <table class="small" id="calib">
@@ -125,7 +133,7 @@
   </section>
 
   <footer>
-    <p>Implied value is this entry's own claim, derived from the sealed snapshot alone —
+    <p>Implied value is this entry's own claim, from the sealed snapshot alone —
     not a prediction, not investment advice. Snapshot: DefiLlama protocols, fetched
     14 Nov 2026; 758 protocols at or above $5M TVL. Farm-plan gas figures are rough
     public estimates for moving stablecoins, marked “about”.</p>

@@ -1,4 +1,4 @@
-// main.ts — Token Launch Radar v2 entrypoint.
+// main.ts — Token Launch Radar v3 entrypoint.
 //
 // Node 22, standard library only, no network, deterministic: the same
 // snapshot bytes always produce the same output bytes.
@@ -57,8 +57,15 @@ const OUTPUT_DIR = process.env.MAKEFUN_OUTPUT_DIR ?? '/output';
 // ranked. Wrapped, staked and bridged products, exchanges, cross-chain
 // bridges and products named for an issuer whose token already trades
 // (Circle, Tether) are left out the same way the house's watchlist rule
-// leaves them out: the v1 board ranked Circle Gateway, a Circle bridge
-// product, at #10, and this rule closes that hole.
+// leaves them out.
+//
+// v3 keeps this calibration exactly as it was: the concentration of the
+// board is driven by TVL, not by the ratio. The three largest launches hold
+// 34.3% of the board's TVL, and the category ratio lifts them to 52.8% of
+// the implied value; 20 categories have two or fewer tokenised peers, so
+// their ratios already borrow most of their weight from the global median.
+// No other prior fits the snapshot's evidence better, so v3 changes the farm
+// plans and the page instead of re-tuning the model — and says so on the page.
 //
 // A log-log fit of market cap on TVL across the tokenised protocols gives
 // R-squared 0.19 — too noisy to price from — so the board uses the category
@@ -293,6 +300,13 @@ for (let i = 0; i < rows.length; i++) {
   });
 }
 
+// How concentrated the board is: the top 3 and top 10 shares of implied
+// value and of TVL, so the page can say plainly where the value sits.
+const totalImplied = rows.reduce((s, r) => s + r.implied_value_usd, 0);
+const totalTvl = rows.reduce((s, r) => s + r.tvl_usd, 0);
+const share = (n: number, key: 'implied_value_usd' | 'tvl_usd'): number =>
+  Math.round((rows.slice(0, n).reduce((s, r) => s + r[key], 0) / (key === 'implied_value_usd' ? totalImplied : totalTvl)) * 1000) / 10;
+
 // ------------------------------------------------------------------ write
 
 mkdirSync(OUTPUT_DIR, { recursive: true });
@@ -304,7 +318,7 @@ const board = {
   as_of: asOf,
   floor_usd: snapshot.floor_usd,
   model: {
-    name: 'category-ratio v2: winsorized + shrunk median x momentum x tenure x breadth',
+    name: 'category-ratio: winsorized + shrunk median x momentum x tenure x breadth',
     ratio: `median mcap/TVL of tokenised protocols with mcap > 0 in the same category, winsorized at the 5th/95th percentile (${round4(winsorLo)}..${round4(winsorHi)}), shrunk toward the global median ${round4(globalRatio)} with prior weight ${PRIOR_WEIGHT}; no peer category uses the global median`,
     momentum: `1 + clamp(change_7d, ${MOMENTUM_LO}, ${MOMENTUM_HI}) / 150; null change = 1`,
     tenure: `1 + 0.45 * sqrt(min(days listed, ${TENURE_CAP_DAYS}) / ${TENURE_CAP_DAYS}); null listing = 1`,
@@ -313,6 +327,12 @@ const board = {
       'mcap, gecko_id and symbol all null; no Bridge/Canonical Bridge/Cross Chain Bridge/CEX/Liquid Staking/Liquid Restaking/Restaked BTC category; no version marker; no wrapped/staked word; no issuer name (Binance, Coinbase, Bybit, Kraken, Bitget, OKX, Bitfinex, Gemini, Circle, Tether)',
     tokenised_pricing: tokenised.length,
     loglog_r2: 0.19,
+    concentration: {
+      top3_implied_share_pct: share(3, 'implied_value_usd'),
+      top10_implied_share_pct: share(10, 'implied_value_usd'),
+      top3_tvl_share_pct: share(3, 'tvl_usd'),
+      note: 'the top 3 hold about a third of the board TVL; the category ratio lifts them to about half of the implied value',
+    },
   },
   rows: rows.map((r) => ({
     slug: r.slug,
@@ -331,6 +351,8 @@ writeFileSync(join(OUTPUT_DIR, 'board.json'), `${JSON.stringify(board, null, 2)}
 
 // The dashboard's data, compact: categories and chains as index tables, rows
 // as arrays, so the whole page stays under the dossier's 64 KiB text cap.
+// The page looks the category ratio up from CALIBRATION and sums the
+// category totals itself, so neither is repeated per row.
 const categories: string[] = [];
 const categoryIndex = new Map<string, number>();
 for (const r of rows) {
@@ -343,11 +365,10 @@ for (const r of rows) {
 const chains: string[] = [];
 const chainIndex = new Map<string, number>();
 for (const r of rows) {
-  for (const c of r.chains) {
-    if (!chainIndex.has(c)) {
-      chainIndex.set(c, chains.length);
-      chains.push(c);
-    }
+  const c = r.chains[0]!;
+  if (!chainIndex.has(c)) {
+    chainIndex.set(c, chains.length);
+    chains.push(c);
   }
 }
 // The page re-derives momentum, tenure and breadth from the figures already
@@ -359,20 +380,20 @@ const dataRows = rows.map((r) => [
   r.slug,
   r.name,
   categoryIndex.get(r.category ?? '(none)')!,
-  r.chains.map((c) => chainIndex.get(c)!),
+  chainIndex.get(r.chains[0]!)!,
+  r.chains.length,
   r.tvl_usd,
   r.change_7d,
   r.implied_value_usd,
   r.age_days,
-  round4(r.ratio),
   watchlist.has(r.slug) ? 1 : 0,
 ]);
 
 // Reference panels, computed from the same snapshot: the tokenised
 // protocols' median ratio per category (the model's calibration), the live
 // tokenised protocols by market cap (the market's own values, never ranked),
-// the protocols that record a ticker but no market cap (a token exists, so
-// they are never ranked), and the implied value by category.
+// and the protocols that record a ticker but no market cap (a token exists,
+// so they are never ranked).
 const calibration = [...categoryRatio.entries()]
   .map(([category, ratio]) => ({
     category,
@@ -383,22 +404,13 @@ const calibration = [...categoryRatio.entries()]
   .sort((a, b) => b.ratio - a.ratio || (a.category < b.category ? -1 : 1));
 const live = tokenised
   .sort((a, b) => b.mcap_usd! - a.mcap_usd! || (a.slug < b.slug ? -1 : 1))
-  .slice(0, 12)
+  .slice(0, 6)
   .map((p) => [p.name, p.mcap_usd, p.tvl_usd, round4(winsor(p.mcap_usd! / p.tvl_usd))] as const);
 const tickerTop = snapshot.protocols
   .filter((p) => p.symbol !== null && p.mcap_usd === null)
   .sort((a, b) => b.tvl_usd - a.tvl_usd || (a.slug < b.slug ? -1 : 1))
-  .slice(0, 24)
+  .slice(0, 10)
   .map((p) => [p.name, p.symbol, p.tvl_usd] as const);
-const catTotals = new Map<string, number>();
-for (const r of rows) {
-  const key = r.category ?? '(none)';
-  catTotals.set(key, (catTotals.get(key) ?? 0) + r.implied_value_usd);
-}
-const categoryTotals = [...catTotals.entries()]
-  .sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1))
-  .slice(0, 8)
-  .map(([category, total]) => [category, total] as const);
 
 const dataJs = [
   '// data.js — generated by main.ts from the snapshot. Do not edit by hand.',
@@ -407,23 +419,24 @@ const dataJs = [
     floorUsd: snapshot.floor_usd,
     rows: rows.length,
     watchlist: watchlist.size,
-    protocols: snapshot.protocols.length,
-    tokenised: tokenised.length,
     tickerOnly: snapshot.protocols.filter((p) => p.symbol !== null && p.mcap_usd === null).length,
     globalRatio: round4(globalRatio),
-    winsorLo: round4(winsorLo),
-    winsorHi: round4(winsorHi),
-    loglogR2: 0.19,
+    top3ImpliedPct: share(3, 'implied_value_usd'),
+    top10ImpliedPct: share(10, 'implied_value_usd'),
+    top3TvlPct: share(3, 'tvl_usd'),
   })};`,
   `export const CATEGORIES = ${JSON.stringify(categories)};`,
   `export const CHAINS = ${JSON.stringify(chains)};`,
   `export const CALIBRATION = ${JSON.stringify(calibration)};`,
   `export const LIVE = ${JSON.stringify(live)};`,
   `export const TICKER_TOP = ${JSON.stringify(tickerTop)};`,
-  `export const CAT_TOTALS = ${JSON.stringify(categoryTotals)};`,
-  '// ROW: [rank, slug, name, categoryIdx, chainIdxs, tvl, change7d, implied, ageDays, ratio, watchlist]',
-  '// Momentum, tenure and breadth are re-derived in app.js from change7d,',
-  '// ageDays and the chain count — the same formulas main.ts used.',
+  '// ROW: [rank, slug, name, categoryIdx, mainChainIdx, chainCount, tvl, change7d, implied, ageDays, watchlist]',
+  '// Only the main chain is stored per row, with the count of all its chains:',
+  '// the farm plan and the chain filter both use the main chain, and the table',
+  '// shows it as "Ethereum +2" from the count. Momentum, tenure and breadth',
+  '// are re-derived in app.js from change7d, ageDays and the chain count — the',
+  '// same formulas main.ts used. The category ratio comes from CALIBRATION,',
+  '// looked up by category.',
   `export const ROWS = ${JSON.stringify(dataRows)};`,
   '',
 ].join('\n');
