@@ -1,96 +1,111 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Token Launch Radar — pre-token protocols ranked by implied value</title>
+<title>Token Launch Radar — pre-token protocols, ranked by implied value</title>
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
-<header>
-  <h1>Token Launch Radar</h1>
-  <p class="sub">Every protocol that still <b>records no token</b>, ranked by what its launch
-  would be worth — and how to farm it. A protocol on this board records no
-  token in the snapshot; that is the record, never proof it has none.</p>
-  <p class="meta" id="meta"></p>
+<header class="top">
+  <div class="brand">
+    <div class="pulse" aria-hidden="true"></div>
+    <div>
+      <h1>Token Launch Radar</h1>
+      <p class="tag">Which pre-token protocol is worth farming next — and what to do about it.</p>
+    </div>
+  </div>
+  <dl class="stats" id="stats"></dl>
 </header>
 
-<section id="spotlightWrap">
-  <h2>Top 10 — the launches worth the most</h2>
-  <div id="spotlight" class="cards"></div>
-</section>
+<main>
+  <section class="note">
+    <strong>How to read this board.</strong>
+    Every row is a protocol that <em>records no token</em> in DefiLlama's snapshot — never "has no token", the record is not proof.
+    Its implied value is this radar's own claim: TVL × the median market-cap/TVL of launched protocols in its category × momentum, maturity, chain breadth and an early-growth bonus.
+    The board ranks only protocols that record no token; launched protocols appear separately below as valuation anchors.
+    <span id="asof"></span>
+  </section>
 
-<section id="boardWrap">
-  <h2>The board</h2>
-  <div class="controls">
-    <label>Search <input id="q" type="search" placeholder="protocol name or slug"></label>
-    <label>Category
-      <select id="catFilter"><option value="">All categories</option></select>
-    </label>
-    <label>Main chain
-      <select id="chainFilter"><option value="">All chains</option></select>
+  <section class="controls" aria-label="Filter and sort">
+    <label>Search <input id="q" type="search" placeholder="protocol, slug or category…" autocomplete="off"></label>
+    <label>Category <select id="cat"><option value="">All categories</option></select></label>
+    <label>Chain <select id="chain"><option value="">All chains</option></select></label>
+    <label class="check"><input id="watchonly" type="checkbox"> Watchlist only</label>
+    <label>Sort by
+      <select id="sort">
+        <option value="rank">Implied value (rank)</option>
+        <option value="tvl">TVL</option>
+        <option value="growth">7-day growth</option>
+        <option value="age">Age (oldest first)</option>
+      </select>
     </label>
     <span class="count" id="count"></span>
-  </div>
-  <table id="board">
-    <thead><tr>
-      <th data-sort="rank">#</th>
-      <th data-sort="name">Protocol</th>
-      <th data-sort="category">Category</th>
-      <th data-sort="chain">Main chain</th>
-      <th data-sort="tvl">TVL</th>
-      <th data-sort="chg">7d</th>
-      <th data-sort="days">Age</th>
-      <th data-sort="implied">Implied value</th>
-    </tr></thead>
-    <tbody id="boardBody"></tbody>
-  </table>
-  <p class="hint">Click a row for its detail view and farm plan. Click a column
-  header to sort. Implied value = TVL &times; category ratio &times; momentum
-  &times; tenure &times; breadth.</p>
-</section>
+  </section>
 
-<section id="detailWrap" hidden>
-  <h2>Detail</h2>
-  <div id="detail"></div>
-</section>
+  <section class="board-wrap">
+    <table id="board">
+      <thead>
+        <tr>
+          <th class="num">#</th>
+          <th>Protocol</th>
+          <th class="num">TVL</th>
+          <th class="num">7d</th>
+          <th class="num">Age</th>
+          <th class="num">Peer ×</th>
+          <th class="num">Implied value</th>
+          <th class="bar">Signal</th>
+        </tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+    <p class="hint">Click a row for its detail view: the value breakdown and the farm plan.</p>
+  </section>
 
-<section id="catchartWrap">
-  <h2>Implied value by category</h2>
-  <div id="catchart"></div>
-</section>
+  <section class="detail" id="detail" hidden>
+    <div class="detail-head">
+      <div>
+        <h2 id="d-name"></h2>
+        <p id="d-sub" class="muted"></p>
+      </div>
+      <button id="d-close" type="button">Close ×</button>
+    </div>
+    <p id="d-why"></p>
+    <h3>Why this value</h3>
+    <table class="signals" id="d-signals"></table>
+    <h3>Farm plan — concrete steps, with cost and time</h3>
+    <ol id="d-steps" class="steps"></ol>
+    <p class="muted small">This protocol records no token in the snapshot dated <span class="asof"></span>. That is DefiLlama's record, not proof it has none — verify before you farm, and never sign an approval you did not expect.</p>
+  </section>
 
-<section id="concentrationWrap">
-  <h2>Where the value concentrates</h2>
-  <div id="concentration"></div>
-</section>
+  <section class="anchors">
+    <h2>Valuation anchors — launched protocols the multiples are priced against</h2>
+    <p class="muted">The peer multiple for each category is the median market-cap/TVL of launched protocols in that category. These are the largest launched protocols in the snapshot; they are <strong>not</strong> board rows, because their tokens already trade.</p>
+    <table id="anchor-table">
+      <thead><tr><th>Protocol</th><th>Category</th><th class="num">TVL</th><th class="num">Market cap</th><th class="num">Mcap / TVL</th></tr></thead>
+      <tbody id="anchor-rows"></tbody>
+    </table>
+  </section>
 
-<section id="liveWrap">
-  <h2>Already trading — not ranked</h2>
-  <p class="sub">These protocols record a token that already trades, so the radar
-  does not rank them. They are the pricing evidence: their market-cap-per-TVL
-  sets the category ratios above.</p>
-  <div id="live"></div>
-</section>
+  <section class="method">
+    <h2>Method — no hardcoded names</h2>
+    <p><code>implied = TVL × peerMultiple(category) × momentum(7d) × maturity(age) × breadth(chains) × earlyBonus</code></p>
+    <ul>
+      <li><strong>Peer multiple:</strong> median market-cap/TVL of launched protocols in the same category (ratios winsorised to 0.01–3.00; fewer than 3 peers falls back to the global median 0.21×), clamped to 0.02–1.50×.</li>
+      <li><strong>Momentum:</strong> the 7-day TVL change, clamped to −40%…+120%, mapped to 0.80–1.60×. Missing change counts as 1.00×.</li>
+      <li><strong>Maturity:</strong> days since DefiLlama first listed the protocol, mapped to 0.85–1.15× over 0–4 years; missing date counts as 1.00×.</li>
+      <li><strong>Breadth:</strong> 1.00× plus 0.05× per extra chain, capped at 1.30×.</li>
+      <li><strong>Early bonus:</strong> 1.10× when a protocol listed under a year ago is already growing faster than +10% in 7 days; otherwise 1.00×.</li>
+      <li><strong>Eligible:</strong> records no token, and is not a wrapped, staked or bridged product, a CEX, or a versioned copy — the snapshot's own watchlist rule, applied to every candidate. All 40 watchlist protocols are on the board.</li>
+    </ul>
+  </section>
+</main>
 
 <footer>
-  <h2>How the value is worked out</h2>
-  <p>Implied value = TVL &times; ratio &times; momentum &times; tenure &times; breadth.
-  <b>Ratio</b> is the category's median market-cap-per-TVL over its tokenised
-  protocols, winsorized at the 5th/95th percentile and shrunk toward the global
-  median (weight 5) — a category with one priced peer is pulled toward the
-  middle instead of trusting the outlier. <b>Momentum</b> is 1 + the 7-day TVL
-  change clamped to &minus;60%/+120%, over 150. <b>Tenure</b> is
-  1 + 0.45 &times; &radic;(days listed, capped at 4 years). <b>Breadth</b> is
-  1 + 0.03 per extra chain, capped at 5. Categories marked <span class="thin">thin evidence</span>
-  have two or fewer tokenised peers, so their ratio leans on the global median.</p>
-  <p>Built from the sealed DefiLlama snapshot of 2026-11-14: 758 protocols at or
-  above $5,000,000 TVL, 40 on the watchlist. Nothing here is a prediction that a
-  token will launch, or when.</p>
+  <p>Token Launch Radar v5 · Snapshot: DefiLlama protocols, <span class="asof"></span> · Floor $50M · Implied values are this entry's own claim, never make.fun's. Built from the sealed snapshot alone — no network, no hardcoded list of names.</p>
 </footer>
 
-<script src="data.js"></script>
-<script src="farm.js"></script>
+<script src="../data.js"></script>
 <script src="app.js"></script>
 </body>
 </html>
