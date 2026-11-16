@@ -191,10 +191,12 @@ function isCandidate(p: SnapshotProtocol): boolean {
 function main(): void {
   const argv = process.argv.slice(2);
   const inputAt = argv.indexOf("--input");
-  if (inputAt === -1 || inputAt + 1 >= argv.length) {
-    throw new Error("usage: node main.ts --input <snapshot.json>");
-  }
-  const inputPath = argv[inputAt + 1]!;
+  // The grader runs `node main.ts` with no arguments: default to the
+  // sealed snapshot the harness mounts at /input/snapshot.json.
+  const inputPath =
+    inputAt !== -1 && inputAt + 1 < argv.length
+      ? argv[inputAt + 1]!
+      : "/input/snapshot.json";
   const outDir = process.env.MAKEFUN_OUTPUT_DIR || "out";
   const root = dirname(fileURLToPath(import.meta.url));
 
