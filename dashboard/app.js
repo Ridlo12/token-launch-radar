@@ -1,296 +1,442 @@
-// app.js — Token Launch Radar v3 dashboard logic (ES module, no network).
-// Renders the board, spotlight, filters, detail view and concentration panel
-// from the compact rows in data.js. Farm steps come from farm.js, the same
-// generator main.ts used for board.json, so the page and the board agree.
-import { ROWS, META, CATEGORIES, CHAINS, CALIBRATION, LIVE, TICKER_TOP } from './data.js';
-import { buildFarmSteps, planSummary } from './farm.js';
+// app.js — Token Launch Radar page.
+//
+// Reads window.RADAR (written by main.ts into data.js) and renders the
+// spotlight, the sortable/filterable board, the detail view, the category
+// chart, the concentration panel and the live-token panel. No network: the
+// page works from disk. farm.js (window.farmSteps) writes the farm plans.
 
-// The factors main.ts used, re-derived here from the row's own figures:
-// momentum from the 7-day change, tenure from days listed, breadth from the
-// chain count — the same formulas. The category ratio comes from CALIBRATION.
-const clamp = (x, lo, hi) => (x < lo ? lo : x > hi ? hi : x);
-const round4 = (x) => Math.round(x * 10000) / 10000;
-const momentumOf = (change) => (change === null ? 1 : 1 + clamp(change, -60, 120) / 150);
-const tenureOf = (days) => (days === null ? 1 : 1 + 0.45 * Math.sqrt(Math.min(days, 1460) / 1460));
-const breadthOf = (n) => 1 + 0.03 * Math.min(n - 1, 5);
-const ratioByCat = new Map(CALIBRATION.map((c) => [c.category, c.ratio]));
+"use strict";
 
-const rows = ROWS.map((r) => ({
-  rank: r[0],
-  slug: r[1],
-  name: r[2],
-  category: CATEGORIES[r[3]],
-  chains: [CHAINS[r[4]]],
-  chainCount: r[5],
-  tvl: r[6],
-  change: r[7],
-  implied: r[8],
-  ageDays: r[9],
-  wl: r[10] === 1,
-  ratio: ratioByCat.get(CATEGORIES[r[3]]) ?? META.globalRatio,
-  momentum: round4(momentumOf(r[7])),
-  tenure: round4(tenureOf(r[9])),
-  breadth: round4(breadthOf(r[5])),
-  density: r[8] / r[6],
+const RADAR = window.RADAR;
+
+// Rows arrive as compact arrays:
+// [slug, name, catIdx, chainIdx, chainCount, tvl, change7d, daysListed, implied]
+const ROWS = RADAR.rows.map((a, i) => ({
+  rank: i + 1,
+  slug: a[0],
+  name: a[1],
+  catIdx: a[2],
+  cat: RADAR.cats[a[2]],
+  chainIdx: a[3],
+  chain: RADAR.chains[a[3]],
+  chainCount: a[4],
+  tvl: a[5],
+  chg: a[6],
+  days: a[7],
+  implied: a[8],
 }));
-// TVL and 7-day-change ranks, for the detail view.
-const byTvl = [...rows].sort((a, b) => b.tvl - a.tvl);
-byTvl.forEach((r, i) => { r.tvlRank = i + 1; });
-const byChg = [...rows].sort((a, b) => (b.change ?? -Infinity) - (a.change ?? -Infinity));
-byChg.forEach((r, i) => { r.chgRank = i + 1; });
-const minTvl = Math.min(...rows.map((r) => r.tvl));
-const maxTvl = Math.max(...rows.map((r) => r.tvl));
-const minImp = Math.min(...rows.map((r) => r.implied));
-const maxImp = Math.max(...rows.map((r) => r.implied));
-const maxRatio = Math.max(...rows.map((r) => r.ratio));
-const logW = (v, lo, hi) => Math.max(2, Math.round(((Math.log10(v) - Math.log10(lo)) / (Math.log10(hi) - Math.log10(lo))) * 100));
-// Implied value by category, summed from the rows on the page.
-const catTotals = new Map();
-for (const r of rows) catTotals.set(r.category, (catTotals.get(r.category) ?? 0) + r.implied);
-const CAT_TOTALS = [...catTotals.entries()].sort((a, b) => b[1] - a[1] || (a[0] < b[0] ? -1 : 1)).slice(0, 8);
 
-const $ = (id) => document.getElementById(id);
-const esc = (s) =>
-  String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+const BY_SLUG = new Map(ROWS.map((r) => [r.slug, r]));
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
 
-function fmtUsd(n) {
-  if (n >= 1e9) return `$${(n / 1e9).toFixed(n >= 1e11 ? 0 : 2).replace(/\.00$/, '')}B`;
-  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
-  if (n >= 1e3) return `$${(n / 1e3).toFixed(1)}K`;
-  return `$${n}`;
-}
-function fmtFull(n) {
-  return '$' + String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
-}
-function fmtPct(x) {
-  if (x === null || x === undefined) return '—';
-  const s = (x > 0 ? '+' : '') + x.toFixed(1) + '%';
-  const cls = x > 0 ? 'up' : x < 0 ? 'down' : '';
-  return `<span class="${cls}">${s}</span>`;
-}
-function fmtAge(days) {
-  if (days === null || days === undefined) return '—';
-  if (days >= 365) return `${(days / 365).toFixed(1)}y`;
-  return `${days}d`;
+// The model's four factors, recomputed from the row's own figures so the
+// detail view's waterfall and the board's implied value always agree.
+function factors(r) {
+  const ratio = RADAR.catRatio[r.catIdx];
+  const momentum = r.chg === null ? 1 : 1 + clamp(r.chg, -60, 120) / 150;
+  const tenure =
+    r.days === null ? 1 : 1 + 0.45 * Math.sqrt(Math.min(r.days, 1460) / 1460);
+  const breadth = 1 + 0.03 * Math.min(Math.max(r.chainCount - 1, 0), 5);
+  return { ratio, momentum, tenure, breadth };
 }
 
-const state = { q: '', cat: '', chain: '', sort: 'rank', wl: false, selected: null };
+function esc(s) {
+  return String(s)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function money(n) {
+  return "$" + String(Math.trunc(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+}
+
+function short(n) {
+  if (n >= 1e9) return "$" + (n / 1e9).toFixed(2) + "B";
+  if (n >= 1e6) return "$" + (n / 1e6).toFixed(1) + "M";
+  return "$" + Math.round(n / 1e3) + "K";
+}
+
+function chgText(chg) {
+  if (chg === null || chg === undefined) return "—";
+  return (chg >= 0 ? "+" : "") + chg.toFixed(1) + "%";
+}
+
+function ageText(days) {
+  if (days === null || days === undefined) return "—";
+  if (days < 30) return days + "d";
+  if (days < 365) return Math.round(days / 30) + "mo";
+  return (days / 365).toFixed(1) + "y";
+}
+
+function thinBadge(r) {
+  return RADAR.catPeers[r.catIdx] <= 2
+    ? '<span class="thin">thin evidence</span>'
+    : "";
+}
+
+// ---------------------------------------------------------------- spotlight
+
+function renderSpotlight() {
+  const top = ROWS.slice(0, 10);
+  document.getElementById("spotlight").innerHTML = top
+    .map(
+      (r) =>
+        '<div class="card" data-slug="' +
+        esc(r.slug) +
+        '"><div class="rk">#' +
+        r.rank +
+        '</div><div class="nm">' +
+        esc(r.name) +
+        '</div><div class="vl">' +
+        short(r.implied) +
+        '</div><div class="ct">' +
+        esc(r.cat) +
+        " · " +
+        esc(r.chain) +
+        "</div></div>",
+    )
+    .join("");
+}
+
+// ------------------------------------------------------------------- board
+
+const state = { sort: "rank", dir: 1, q: "", cat: "", chain: "" };
 
 function filtered() {
   const q = state.q.trim().toLowerCase();
-  let list = rows.filter(
+  let list = ROWS.filter(
     (r) =>
-      (!q || r.name.toLowerCase().includes(q) || r.slug.includes(q)) &&
-      (!state.cat || r.category === state.cat) &&
-      (!state.chain || r.chains[0] === state.chain) &&
-      (!state.wl || r.wl),
+      (state.cat === "" || r.cat === state.cat) &&
+      (state.chain === "" || r.chain === state.chain) &&
+      (q === "" ||
+        r.name.toLowerCase().includes(q) ||
+        r.slug.includes(q)),
   );
-  const by = {
-    rank: (a, b) => a.rank - b.rank,
-    tvl: (a, b) => b.tvl - a.tvl,
-    chg: (a, b) => (b.change ?? -Infinity) - (a.change ?? -Infinity),
-    age: (a, b) => (b.ageDays ?? -1) - (a.ageDays ?? -1),
-    density: (a, b) => b.density - a.density,
-  }[state.sort];
-  return list.sort(by);
-}
-
-function renderChips() {
-  const top = rows[0];
-  $('chips').innerHTML = [
-    `<span class="chip"><b>${META.rows}</b> protocols ranked</span>`,
-    `<span class="chip"><b>${META.watchlist}</b> on the watchlist</span>`,
-    `<span class="chip">top implied <b>${fmtUsd(top.implied)}</b> · ${esc(top.name)}</span>`,
-    `<span class="chip">floor <b>${fmtUsd(META.floorUsd)}</b> TVL</span>`,
-    `<span class="chip">snapshot <b>${META.asOf}</b></span>`,
-  ].join('');
-}
-
-function renderTop10() {
-  $('top10').innerHTML = rows.slice(0, 10).map((r) => `
-    <div class="card${r.slug === state.selected ? ' sel' : ''}" data-slug="${esc(r.slug)}">
-      <div class="crank">#${r.rank}</div>
-      <div class="cname">${esc(r.name)}</div>
-      <div class="cval">${fmtUsd(r.implied)}</div>
-      <div class="cmeta">${esc(r.category)} · TVL ${fmtUsd(r.tvl)}</div>
-    </div>`).join('');
-  document.querySelectorAll('#top10 .card').forEach((el) => {
-    el.addEventListener('click', () => select(el.dataset.slug));
+  const key = state.sort;
+  const dir = state.dir;
+  const val = (r) => {
+    if (key === "name" || key === "category" || key === "chain")
+      return key === "name" ? r.name : key === "category" ? r.cat : r.chain;
+    if (key === "chg") return r.chg === null ? -Infinity : r.chg;
+    if (key === "days") return r.days === null ? -Infinity : r.days;
+    return r[key];
+  };
+  list = [...list].sort((a, b) => {
+    const va = val(a);
+    const vb = val(b);
+    if (va < vb) return -dir;
+    if (va > vb) return dir;
+    return a.rank - b.rank;
   });
+  return list;
 }
 
-function renderTable() {
+function renderBoard() {
   const list = filtered();
-  $('count').textContent = `${list.length} of ${rows.length} protocols shown.`;
-  $('rows').innerHTML = list
-    .map(
-      (r) => `<tr data-slug="${esc(r.slug)}" class="${r.slug === state.selected ? 'selected' : ''}">
-        <td class="num rank">${r.rank}</td>
-        <td><span class="name">${esc(r.name)}</span>${r.wl ? '<span class="wlmark">WL</span>' : ''}<span class="badge">PRE-TOKEN</span></td>
-        <td>${esc(r.category)}</td>
-        <td>${esc(r.chains[0])}${r.chainCount > 1 ? ` +${r.chainCount - 1}` : ''}</td>
-        <td class="num">${fmtUsd(r.tvl)}</td>
-        <td class="num">${fmtPct(r.change)}</td>
-        <td class="num"><strong>${fmtUsd(r.implied)}</strong><div class="bar"><i style="width:${logW(r.implied, minImp, maxImp)}%"></i></div></td>
-        <td class="num">${fmtAge(r.ageDays)}</td>
-      </tr>`,
-    )
-    .join('');
-  document.querySelectorAll('#rows tr').forEach((tr) => {
-    tr.addEventListener('click', () => select(tr.dataset.slug));
-  });
+  const maxImplied = ROWS[0].implied;
+  document.getElementById("boardBody").innerHTML = list
+    .map((r) => {
+      const pct = Math.round((r.implied / maxImplied) * 100);
+      const chgCls = r.chg === null ? "" : r.chg >= 0 ? "up" : "down";
+      return (
+        '<tr data-slug="' +
+        esc(r.slug) +
+        '"><td class="num">' +
+        r.rank +
+        "</td><td><b>" +
+        esc(r.name) +
+        "</b>" +
+        thinBadge(r) +
+        "</td><td>" +
+        esc(r.cat) +
+        "</td><td>" +
+        esc(r.chain) +
+        "</td><td class=\"num\">" +
+        short(r.tvl) +
+        '</td><td class="num ' +
+        chgCls +
+        '">' +
+        chgText(r.chg) +
+        '</td><td class="num">' +
+        ageText(r.days) +
+        '</td><td class="num"><b>' +
+        short(r.implied) +
+        '</b><div class="bar"><i style="width:' +
+        pct +
+        '%"></i></div></td></tr>'
+      );
+    })
+    .join("");
+  document.getElementById("count").textContent =
+    list.length + " of " + ROWS.length + " protocols · sorted by " + state.sort;
 }
 
-function renderDetail() {
-  const box = $('detail');
-  const r = rows.find((x) => x.slug === state.selected);
-  if (!r) {
-    box.innerHTML = '<p class="empty">Select a protocol above to see its value breakdown and farm plan.</p>';
-    return;
-  }
-  const steps = buildFarmSteps({
+// ------------------------------------------------------------------ detail
+
+function toFarmRow(r) {
+  return {
     slug: r.slug,
     name: r.name,
-    category: r.category,
-    chains: r.chains,
-    tvl_usd: r.tvl,
-    change_7d: r.change,
-    implied_value_usd: r.implied,
+    category: r.cat === "Uncategorised" ? null : r.cat,
+    mainChain: r.chain,
+    chainCount: r.chainCount,
+    tvlUsd: r.tvl,
+    change7d: r.chg,
+    daysListed: r.days,
     rank: r.rank,
-    age_days: r.ageDays,
-  });
-  const sum = planSummary({
-    chains: r.chains,
-    age_days: r.ageDays,
-  });
-  // Displayed factors are rounded to 4 decimals; the board's value is exact.
-  const product = Math.round(r.tvl * r.ratio * r.momentum * r.tenure * r.breadth);
-  const wf = [
-    ['TVL', fmtUsd(r.tvl), logW(r.tvl, minTvl, maxTvl), false],
-    ['Category ratio', String(r.ratio), Math.round((r.ratio / maxRatio) * 100), true],
-    ['Momentum', String(r.momentum), Math.round(((r.momentum - 0.6) / 1.2) * 100), false],
-    ['Tenure', String(r.tenure), Math.round(((r.tenure - 1) / 0.45) * 100), false],
-    ['Breadth', String(r.breadth), Math.round(((r.breadth - 1) / 0.15) * 100), false],
-  ];
-  box.innerHTML = `
-    <div class="detail-head">
-      <h2>#${r.rank} ${esc(r.name)}</h2>
-      <span class="sub">${esc(r.slug)} · ${esc(r.category)} · ${esc(r.chains[0])}${r.chainCount > 1 ? ` + ${r.chainCount - 1} more` : ''}</span>
-      ${r.wl ? '<span class="wlmark">WATCHLIST</span>' : '<span class="badge">BELOW FLOOR</span>'}
-      <span class="badge">PRE-TOKEN</span>
-    </div>
-    <div class="grid2">
-      <div>
-        <p class="formula">Implied value = TVL × ratio × momentum × tenure × breadth<br>
-        <code>${fmtFull(r.tvl)} × ${r.ratio} × ${r.momentum} × ${r.tenure} × ${r.breadth} ≈ ${fmtFull(product)}</code><br>
-        <span class="hint">Factors rounded to 4 decimals; the board's value is the exact product.</span></p>
-        <div class="waterfall">${wf.map(([lbl, val, w, acc]) => `
-          <div class="wf-row"><span class="lbl">${lbl}</span><span class="wf-track"><i class="${acc ? 'acc' : ''}" style="width:${clamp(w, 2, 100)}%"></i></span><span class="val">${val}</span></div>`).join('')}</div>
-        <table class="kv">
-          <tr><td>Implied value</td><td><strong>${fmtFull(r.implied)}</strong></td></tr>
-          <tr><td>TVL</td><td>${fmtFull(r.tvl)} (rank #${r.tvlRank} of ${rows.length})</td></tr>
-          <tr><td>7-day TVL change</td><td>${r.change === null ? 'not reported' : `${r.change > 0 ? '+' : ''}${r.change}% (rank #${r.chgRank} of ${rows.length})`}</td></tr>
-          <tr><td>Category ratio (median mcap/TVL)</td><td>${r.ratio}</td></tr>
-          <tr><td>Momentum factor</td><td>${r.momentum}</td></tr>
-          <tr><td>Tenure factor (${r.ageDays === null ? 'listing unreported' : fmtAge(r.ageDays) + ' listed'})</td><td>${r.tenure}</td></tr>
-          <tr><td>Breadth factor (${r.chainCount} chain${r.chainCount === 1 ? '' : 's'})</td><td>${r.breadth}</td></tr>
-        </table>
-        <p class="hint">“Records no token” means the snapshot carries no market cap, no
-        CoinGecko id and no ticker for this protocol. The implied value is this entry's
-        own claim, not a prediction that a token will launch.</p>
-      </div>
-      <div>
-        <h3>Farm plan</h3>
-        <p class="plansum">Est. total gas <b>≈ $${sum.gasUsd.toFixed(2)}</b> · active time <b>≈ ${sum.minutes} min</b> over <b>${sum.holdDays} days</b> · position <b>$${r.rank <= 25 ? '1,000' : r.rank <= 100 ? '500' : '100'}</b></p>
-        <ol class="steps">${steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ol>
-      </div>
-    </div>`;
+    impliedUsd: r.implied,
+  };
 }
 
-function renderChart() {
-  const max = CAT_TOTALS[0][1];
-  $('catbars').innerHTML = CAT_TOTALS.map(([cat, total]) => `
-    <div class="brow"><span class="blbl">${esc(cat)}</span><span class="btrack"><i style="width:${Math.max(2, Math.round((total / max) * 100))}%"></i></span><span class="bval">${fmtUsd(total)}</span></div>`).join('');
+function renderDetail(slug) {
+  const r = BY_SLUG.get(slug);
+  const box = document.getElementById("detail");
+  const wrap = document.getElementById("detailWrap");
+  if (!r) {
+    wrap.hidden = true;
+    box.innerHTML = "";
+    return;
+  }
+  const f = factors(r);
+  const tvlRank = [...ROWS].sort((a, b) => b.tvl - a.tvl).indexOf(r) + 1;
+  const chgRank =
+    r.chg === null
+      ? "—"
+      : "#" +
+        ([...ROWS]
+          .filter((x) => x.chg !== null)
+          .sort((a, b) => b.chg - a.chg)
+          .indexOf(r) +
+          1);
+  const peers = RADAR.catPeers[r.catIdx];
+  const steps = window.farmSteps(toFarmRow(r));
+  box.innerHTML =
+    '<p><span class="back" id="backLink">← back to the board</span></p>' +
+    "<h3>#" +
+    r.rank +
+    " " +
+    esc(r.name) +
+    thinBadge(r) +
+    "</h3>" +
+    '<p class="facts">' +
+    esc(r.cat) +
+    " · main chain " +
+    esc(r.chain) +
+    " (" +
+    r.chainCount +
+    " chains) · TVL rank #" +
+    tvlRank +
+    " · 7d change rank " +
+    chgRank +
+    " · " +
+    ageText(r.days) +
+    " listed" +
+    "</p>" +
+    '<table class="wf">' +
+    "<tr><td>TVL</td><td>" +
+    money(r.tvl) +
+    "</td></tr>" +
+    "<tr><td>× category ratio (" +
+    esc(r.cat) +
+    ", " +
+    peers +
+    " priced peer" +
+    (peers === 1 ? "" : "s") +
+    ")</td><td>" +
+    f.ratio.toFixed(3) +
+    "×</td></tr>" +
+    "<tr><td>× momentum (7d " +
+    chgText(r.chg) +
+    ")</td><td>" +
+    f.momentum.toFixed(3) +
+    "×</td></tr>" +
+    "<tr><td>× tenure (" +
+    ageText(r.days) +
+    " with no token)</td><td>" +
+    f.tenure.toFixed(3) +
+    "×</td></tr>" +
+    "<tr><td>× breadth (" +
+    r.chainCount +
+    " chains)</td><td>" +
+    f.breadth.toFixed(3) +
+    "×</td></tr>" +
+    '<tr class="total"><td>= implied value</td><td>' +
+    money(r.implied) +
+    "</td></tr></table>" +
+    "<h3>How to farm it</h3><ol>" +
+    steps
+      .map((s) => "<li>" + esc(s).replace("Cost:", "<b>Cost:</b>") + "</li>")
+      .join("") +
+    "</ol>";
+  wrap.hidden = false;
+  document.getElementById("backLink").addEventListener("click", () => {
+    location.hash = "#/";
+  });
+}
+
+// ------------------------------------------------------- category + panels
+
+function renderCategoryChart() {
+  const totals = new Map();
+  for (const r of ROWS) totals.set(r.cat, (totals.get(r.cat) || 0) + r.implied);
+  const top = [...totals.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
+  const max = top[0][1];
+  document.getElementById("catchart").innerHTML = top
+    .map(
+      ([cat, val]) =>
+        '<div class="chartrow"><span>' +
+        esc(cat) +
+        '</span><span class="track"><span class="fill" style="display:block;width:' +
+        Math.round((val / max) * 100) +
+        '%"></span></span><span class="amt">' +
+        short(val) +
+        "</span></div>",
+    )
+    .join("");
 }
 
 function renderConcentration() {
-  $('concentration').innerHTML = `
-    <div class="brow"><span class="blbl">Top 3 launches</span><span class="btrack"><i style="width:${Math.max(2, Math.round(META.top3ImpliedPct))}%"></i></span><span class="bval">${META.top3ImpliedPct}%</span></div>
-    <div class="brow"><span class="blbl">Top 10 launches</span><span class="btrack"><i style="width:${Math.max(2, Math.round(META.top10ImpliedPct))}%"></i></span><span class="bval">${META.top10ImpliedPct}%</span></div>
-    <p class="hint">The top 3 hold ${META.top3TvlPct}% of the board's TVL, and the category ratio lifts them to ${META.top3ImpliedPct}% of the implied value. The concentration comes from TVL first — the three largest pre-token protocols are all Risk Curators — and no re-tuning of the prior fits the snapshot's evidence better, so the board shows it instead of hiding it.</p>`;
+  const totalImplied = ROWS.reduce((n, r) => n + r.implied, 0);
+  const totalTvl = ROWS.reduce((n, r) => n + r.tvl, 0);
+  const top3 = ROWS.slice(0, 3);
+  const top3Implied = top3.reduce((n, r) => n + r.implied, 0);
+  const top3Tvl = top3.reduce((n, r) => n + r.tvl, 0);
+  const shareI = Math.round((top3Implied / totalImplied) * 100);
+  const shareT = Math.round((top3Tvl / totalTvl) * 100);
+  const topCat = top3[0].cat;
+  const topRatio = RADAR.catRatio[top3[0].catIdx];
+  const topPeers = RADAR.catPeers[top3[0].catIdx];
+  const peerNote =
+    topPeers === 1
+      ? "because its only tokenised peer prices high"
+      : "because its tokenised peers price high";
+  document.getElementById("concentration").innerHTML =
+    "<p>The top 3 rows hold <b>" +
+    shareI +
+    "%</b> of the board's implied value on <b>" +
+    shareT +
+    "%</b> of its TVL. The gap is the category ratio: " +
+    esc(topCat) +
+    " prices at <b>" +
+    topRatio.toFixed(2) +
+    "× TVL</b> against a <b>" +
+    RADAR.meta.globalRatio.toFixed(2) +
+    "×</b> global median, " +
+    peerNote +
+    " — so a " +
+    esc(topCat) +
+    " protocol's TVL counts for more than a typical protocol's. That is the model's honest output, stated here rather than hidden.</p>" +
+    "<p>Board totals: " +
+    money(totalImplied) +
+    " implied value across " +
+    ROWS.length +
+    " protocols, on " +
+    money(totalTvl) +
+    " of TVL.</p>";
 }
 
-function renderCalib() {
-  document.querySelector('#calib tbody').innerHTML = CALIBRATION.map(
-    (c) => `<tr><td>${esc(c.category)}${c.n < 3 ? ' <span class="thin">thin</span>' : ''}</td><td class="num">${c.n}</td><td class="num">${c.median}</td><td class="num">${c.ratio}</td></tr>`,
-  ).join('');
-  document.querySelector('#live tbody').innerHTML = LIVE.map(
-    (t) => `<tr><td>${esc(t[0])}</td><td class="num">${fmtFull(t[1])}</td><td class="num">${fmtFull(t[2])}</td><td class="num">${t[3]}</td></tr>`,
-  ).join('');
-  $('tickerCount').textContent = META.tickerOnly;
-  $('tickerList').textContent = TICKER_TOP.map((t) => `${t[0]} (${t[1]})`).join(' · ');
+function renderLive() {
+  document.getElementById("live").innerHTML = RADAR.live
+    .map(
+      ([name, mcap, catIdx]) =>
+        "<div><b>" +
+        esc(name) +
+        "</b> — " +
+        short(mcap) +
+        ' <span>(' +
+        esc(RADAR.cats[catIdx]) +
+        ")</span></div>",
+    )
+    .join("");
 }
 
-function fillSelects() {
-  const catSel = $('cat');
-  [...new Set(rows.map((r) => r.category))].sort().forEach((c) => {
-    const o = document.createElement('option');
+// ------------------------------------------------------------------ routing
+
+function route() {
+  const hash = location.hash || "#/";
+  const detail = hash.match(/^#\/detail\/(.+)$/);
+  const cat = hash.match(/^#\/cat\/(.+)$/);
+  if (detail) {
+    renderDetail(decodeURIComponent(detail[1]));
+    document
+      .getElementById("detailWrap")
+      .scrollIntoView({ behavior: "auto", block: "start" });
+  } else {
+    document.getElementById("detailWrap").hidden = true;
+    if (cat) {
+      state.cat = decodeURIComponent(cat[1]);
+      document.getElementById("catFilter").value = state.cat;
+    }
+    renderBoard();
+  }
+}
+
+function init() {
+  document.getElementById("meta").textContent =
+    "Snapshot " +
+    RADAR.meta.asOf +
+    " · " +
+    RADAR.rows.length +
+    " protocols ranked · watchlist floor " +
+    money(RADAR.meta.floorUsd) +
+    " · global median ratio " +
+    RADAR.meta.globalRatio.toFixed(3) +
+    "×";
+  const catSel = document.getElementById("catFilter");
+  for (const c of RADAR.cats) {
+    const o = document.createElement("option");
     o.value = c;
     o.textContent = c;
     catSel.appendChild(o);
-  });
-  const chainSel = $('chain');
-  [...new Set(rows.map((r) => r.chains[0]))].sort().forEach((c) => {
-    const o = document.createElement('option');
+  }
+  const chainSel = document.getElementById("chainFilter");
+  for (const c of RADAR.chains) {
+    const o = document.createElement("option");
     o.value = c;
     o.textContent = c;
     chainSel.appendChild(o);
+  }
+  document.getElementById("q").addEventListener("input", (e) => {
+    state.q = e.target.value;
+    renderBoard();
   });
+  catSel.addEventListener("change", (e) => {
+    state.cat = e.target.value;
+    renderBoard();
+  });
+  chainSel.addEventListener("change", (e) => {
+    state.chain = e.target.value;
+    renderBoard();
+  });
+  document.querySelectorAll("#board th").forEach((th) => {
+    th.addEventListener("click", () => {
+      const key = th.dataset.sort;
+      if (state.sort === key) state.dir = -state.dir;
+      else {
+        state.sort = key;
+        state.dir = key === "name" || key === "category" || key === "chain" ? 1 : -1;
+      }
+      renderBoard();
+    });
+  });
+  document.getElementById("spotlight").addEventListener("click", (e) => {
+    const card = e.target.closest("[data-slug]");
+    if (card) location.hash = "#/detail/" + card.dataset.slug;
+  });
+  document.getElementById("boardBody").addEventListener("click", (e) => {
+    const row = e.target.closest("[data-slug]");
+    if (row) location.hash = "#/detail/" + row.dataset.slug;
+  });
+  window.addEventListener("hashchange", route);
+  renderSpotlight();
+  renderCategoryChart();
+  renderConcentration();
+  renderLive();
+  route();
 }
 
-function readHash() {
-  const h = new URLSearchParams(location.hash.slice(1));
-  if (h.get('q') !== null) { state.q = h.get('q'); $('q').value = state.q; }
-  if (h.get('cat')) { state.cat = h.get('cat'); $('cat').value = state.cat; }
-  if (h.get('chain')) { state.chain = h.get('chain'); $('chain').value = state.chain; }
-  if (h.get('sort')) { state.sort = h.get('sort'); $('sort').value = state.sort; }
-  if (h.get('wl') === '1') { state.wl = true; $('wl').checked = true; }
-  if (h.get('detail')) state.selected = h.get('detail');
-}
-
-function writeHash() {
-  const h = new URLSearchParams();
-  if (state.q) h.set('q', state.q);
-  if (state.cat) h.set('cat', state.cat);
-  if (state.chain) h.set('chain', state.chain);
-  if (state.sort !== 'rank') h.set('sort', state.sort);
-  if (state.wl) h.set('wl', '1');
-  if (state.selected) h.set('detail', state.selected);
-  const s = h.toString();
-  history.replaceState(null, '', s ? `#${s}` : location.pathname);
-}
-
-function select(slug) {
-  state.selected = slug;
-  writeHash();
-  renderTop10();
-  renderTable();
-  renderDetail();
-  $('detail').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
-$('q').addEventListener('input', (e) => { state.q = e.target.value; writeHash(); renderTable(); });
-$('cat').addEventListener('change', (e) => { state.cat = e.target.value; writeHash(); renderTable(); });
-$('chain').addEventListener('change', (e) => { state.chain = e.target.value; writeHash(); renderTable(); });
-$('sort').addEventListener('change', (e) => { state.sort = e.target.value; writeHash(); renderTable(); });
-$('wl').addEventListener('change', (e) => { state.wl = e.target.checked; writeHash(); renderTable(); });
-
-fillSelects();
-readHash();
-renderChips();
-renderTop10();
-renderTable();
-renderDetail();
-renderChart();
-renderConcentration();
-renderCalib();
+init();
